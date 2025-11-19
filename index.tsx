@@ -6,51 +6,543 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI } from "@google/genai";
-
-// Import game files directly as strings so they are bundled by Vite
-// Using relative paths to ensure compatibility
-// @ts-ignore
-import gemini3Html from './init/gemini3.html?raw';
-// @ts-ignore
-import gemini2p5Html from './init/gemini2p5.html?raw';
 
 const MATE_COLORS = {
   backgroundDark: '#0E0F11',
   backgroundLight: '#F2EEE0',
   textDark: '#F2EEE0',
   textLight: '#0E0F11',
-  accentGreen: '#4ED1A1',
-  accentRed: '#FF567B',
-  accentBlue: '#6DB4FF',
-  grey: '#666',
-  darkGrey: '#333',
-  lightGrey: '#aaa'
+  green: '#4ED1A1',
+  red: '#FF567B',
+  blue: '#6DB4FF'
 };
 
+// THE GAME CODE IS NOW EMBEDDED TO PREVENT LOADING ERRORS
+const GAME_SOURCE = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mate Game</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@700&display=swap');
+        
+        body { margin: 0; overflow: hidden; background: #F2EEE0; color: #0E0F11; user-select: none; font-family: 'Inter', sans-serif; }
+        canvas { display: block; }
+        
+        #ui {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between;
+            padding: 40px; box-sizing: border-box; z-index: 10;
+        }
+
+        .hud-group { display: flex; gap: 60px; pointer-events: auto; align-items: center; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-label { font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; opacity: 0.5; margin-bottom: 6px; }
+        .stat-val { font-family: 'Space Grotesk', sans-serif; font-size: 42px; line-height: 0.9; font-weight: 700; }
+        
+        .bar-track { width: 180px; height: 6px; background: rgba(0,0,0,0.05); margin-top: 4px; position: relative; overflow: hidden; border-radius: 3px; }
+        .bar-fill { height: 100%; width: 100%; transition: width 0.2s; }
+        
+        #arsenal { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; pointer-events: auto; }
+        .weapon-row {
+            display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+            border-radius: 6px; background: rgba(0,0,0,0.03);
+            position: relative; overflow: hidden; transition: all 0.3s; border: 1px solid transparent;
+        }
+        .weapon-row.active { background: #F2EEE0; border-color: rgba(0,0,0,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .progress-bg {
+            position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+            background: rgba(78, 209, 161, 0.1); z-index: 0; transition: width 0.5s;
+        }
+        .key-box {
+            width: 24px; height: 24px; border: 1px solid currentColor; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 12px; position: relative; z-index: 1; opacity: 0.6;
+        }
+        .weapon-row.active .key-box { background: #0E0F11; color: #F2EEE0; border-color: #0E0F11; opacity: 1; }
+        
+        .weapon-meta { position: relative; z-index: 1; display: flex; flex-direction: column; }
+        .weapon-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .weapon-desc { font-family: 'Inter', sans-serif; font-size: 10px; opacity: 0.6; margin-top: 2px; }
+
+        #game-over {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(242, 238, 224, 0.95);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; pointer-events: auto;
+        }
+        .go-title { font-family: 'Space Grotesk', sans-serif; font-size: 64px; margin-bottom: 10px; letter-spacing: -2px; font-weight: 800; color: #0E0F11; }
+        .cta-btn {
+            background: #0E0F11; color: #F2EEE0; border: none;
+            padding: 16px 40px; border-radius: 50px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 16px; font-weight: 700;
+            text-transform: uppercase; cursor: pointer; margin-bottom: 24px; transition: transform 0.2s;
+        }
+        .cta-btn:hover { transform: scale(1.05); }
+        
+        #notif {
+            position: absolute; top: 30%; width: 100%; text-align: center;
+            font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 700; letter-spacing: -0.5px; text-transform: uppercase;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s; transform: translateY(20px); z-index: 20;
+        }
+        #notif.show { opacity: 1; transform: translateY(0); }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="c"></canvas>
+
+    <div id="ui">
+        <div class="hud-group" style="justify-content: space-between; width: 100%; margin-top: 80px;">
+            <div class="hud-group">
+                <div class="stat">
+                    <div class="stat-label">Total Impact</div>
+                    <div class="stat-val" id="score">0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Resilience</div>
+                    <div class="bar-track"><div class="bar-fill" id="hp-bar" style="background: #FF567B;"></div></div>
+                </div>
+            </div>
+            
+            <div class="stat" style="align-items: flex-end; text-align: right;">
+                <div class="stat-label">Centralized Wisdom <span id="wisdom-val">0%</span></div>
+                <div class="bar-track" style="width: 240px; height: 6px; background: rgba(0,0,0,0.1);"><div class="bar-fill" id="wisdom-bar" style="background: #4ED1A1; width: 0%;"></div></div>
+                <div id="wisdom-text" style="font-size: 10px; margin-top: 8px; opacity: 0.5; font-weight: 700; letter-spacing: 1px;">GATHERING INTEL</div>
+            </div>
+        </div>
+
+        <div id="arsenal">
+            <div class="weapon-row active" id="w1">
+                <div class="progress-bg" id="w1-prog"></div>
+                <div class="key-box">I</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">Intuition</div>
+                    <div class="weapon-desc">Standard Beam</div>
+                </div>
+            </div>
+            <div class="weapon-row" id="w2" style="opacity: 0.5;">
+                <div class="progress-bg" id="w2-prog"></div>
+                <div class="key-box">C</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">Context</div>
+                    <div class="weapon-desc">Dual Beam (10 Impact)</div>
+                </div>
+            </div>
+             <div class="weapon-row" id="w3" style="opacity: 0.5;">
+                <div class="progress-bg" id="w3-prog"></div>
+                <div class="key-box">O</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">Orchestration</div>
+                    <div class="weapon-desc">Auto-Chain (25 Impact)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="notif"></div>
+
+    <div id="game-over">
+        <div class="go-title" id="go-head">OLD WORLD FAILURE</div>
+        <div class="go-desc" style="margin-bottom: 40px; font-family: 'Inter'; opacity: 0.6; color: #0E0F11;">Your team was overwhelmed by noise.</div>
+        <button class="cta-btn" onclick="window.open('https://mate.ai', '_blank')">Get a Mate</button>
+        <button class="link-btn" onclick="game.reset()" style="background:none; border:none; text-decoration:underline; cursor:pointer; font-family:'Inter'; opacity:0.5; color: #0E0F11; font-size: 12px;">TRY AGAIN</button>
+    </div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const COLORS = {
+    light: { bg: '#F2EEE0', text: '#0E0F11', ui: 'rgba(0,0,0,0.05)' },
+    dark: { bg: '#0E0F11', text: '#F2EEE0', ui: 'rgba(255,255,255,0.05)' },
+    green: '#4ED1A1', red: '#FF567B', blue: '#6DB4FF'
+};
+let currentTheme = 'light';
+
+class Game {
+    constructor() {
+        this.entities = [];
+        this.lasers = [];
+        this.particles = [];
+        this.score = 0;
+        this.health = 100;
+        this.wisdom = 0;
+        this.weaponLevel = 1;
+        this.agentActive = false;
+        this.agentTimer = 0;
+        this.lastTime = 0;
+        this.spawnTimer = 0;
+        this.paused = false;
+        this.over = false;
+        this.animationId = null;
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+
+        this.resize();
+        this.bindEvents();
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+    }
+    
+    resize() {
+        this.width = canvas.width = window.innerWidth;
+        this.height = canvas.height = window.innerHeight;
+    }
+    
+    bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+        window.addEventListener('mousedown', e => {
+            if(!this.paused && !this.over) this.fire(e.clientX, e.clientY);
+        });
+        
+        window.addEventListener('message', (e) => {
+            if(e.data.type === 'SET_THEME') {
+                currentTheme = e.data.payload;
+                this.applyTheme();
+            }
+            if(e.data.type === 'PAUSE_GAME') {
+                this.paused = e.data.payload;
+                if(!this.paused) this.lastTime = performance.now();
+            }
+        });
+    }
+    
+    applyTheme() {
+        const c = COLORS[currentTheme];
+        document.body.style.backgroundColor = c.bg;
+        document.body.style.color = c.text;
+        const go = document.getElementById('game-over');
+        if(go) {
+            go.style.backgroundColor = currentTheme === 'light' ? 'rgba(242, 238, 224, 0.98)' : 'rgba(14, 15, 17, 0.98)';
+            const head = document.getElementById('go-head');
+            if(head) head.style.color = c.text;
+            const desc = document.querySelector('.go-desc');
+            if(desc) desc.style.color = c.text;
+            const link = document.querySelector('.link-btn');
+            if(link) link.style.color = c.text;
+            const cta = document.querySelector('.cta-btn');
+            if(cta) {
+                 cta.style.backgroundColor = c.text;
+                 cta.style.color = c.bg;
+            }
+        }
+        document.querySelectorAll('.key-box').forEach(el => el.style.borderColor = c.text);
+    }
+    
+    reset() {
+        this.entities = [];
+        this.lasers = [];
+        this.particles = [];
+        this.score = 0;
+        this.health = 100;
+        this.wisdom = 0;
+        this.weaponLevel = 1;
+        this.agentActive = false;
+        this.over = false;
+        this.paused = false;
+        this.lastTime = performance.now();
+        document.getElementById('game-over').style.display = 'none';
+    }
+    
+    fire(tx, ty) {
+        if(this.agentActive) return;
+        const ox = this.width / 2;
+        const oy = this.height - 60;
+
+        // Level 1
+        this.lasers.push(new Laser(ox, oy, tx, ty, COLORS[currentTheme].text));
+        
+        // Level 2
+        if(this.weaponLevel >= 2) {
+             this.lasers.push(new Laser(ox - 40, oy + 10, tx - 20, ty, COLORS.blue));
+             this.lasers.push(new Laser(ox + 40, oy + 10, tx + 20, ty, COLORS.blue));
+        }
+        
+        // Level 3 - Auto targeting happens in checkHits
+        const r = 40 + (this.weaponLevel * 15);
+        this.checkHits(tx, ty, r);
+    }
+    
+    checkHits(x, y, r) {
+        this.entities.forEach(e => {
+            if(e.dead) return;
+            if(Math.hypot(e.x - x, e.y - y) < r + e.size) {
+                if(e.type === 'THREAT') {
+                    this.destroyEntity(e);
+                    if(this.weaponLevel >= 3) this.triggerChain(e);
+                } else if(e.type === 'NOISE') {
+                    this.takeDamage(10);
+                    this.notify("NOISE DISTRACTION", COLORS.red);
+                    e.dead = true;
+                } else if(e.type === 'WISDOM') {
+                    e.dead = true;
+                    this.wisdom = 100;
+                    this.deployAgent();
+                }
+            }
+        });
+    }
+    
+    triggerChain(source) {
+        let nearest = null, minDist = 300;
+        this.entities.forEach(e => {
+            if(!e.dead && e !== source && e.type === 'THREAT') {
+                const d = Math.hypot(e.x - source.x, e.y - source.y);
+                if(d < minDist) { minDist = d; nearest = e; }
+            }
+        });
+        if(nearest) {
+            setTimeout(() => this.destroyEntity(nearest), 50);
+            this.lasers.push(new Laser(source.x, source.y, nearest.x, nearest.y, COLORS.green, true));
+        }
+    }
+    
+    destroyEntity(e) {
+        if(e.dead) return;
+        e.dead = true;
+        this.score++;
+        this.wisdom = Math.min(100, this.wisdom + 8);
+        this.health = Math.min(100, this.health + 1);
+        for(let i=0; i<5; i++) this.particles.push(new Particle(e.x, e.y, COLORS.red));
+        
+        if(this.score === 10 && this.weaponLevel < 2) {
+            this.weaponLevel = 2;
+            this.notify("CONTEXT UNLOCKED", COLORS.blue);
+        }
+        if(this.score === 25 && this.weaponLevel < 3) {
+            this.weaponLevel = 3;
+            this.notify("ORCHESTRATION UNLOCKED", COLORS.green);
+        }
+    }
+    
+    deployAgent() {
+        if(!this.agentActive) {
+            this.agentActive = true;
+            this.agentTimer = 5000;
+            this.notify("MATE AGENT DEPLOYED", COLORS.green);
+        }
+    }
+    
+    takeDamage(amt) {
+        this.health -= amt;
+        if(this.health <= 0) {
+            this.over = true;
+            document.getElementById('game-over').style.display = 'flex';
+        }
+    }
+    
+    notify(text, color) {
+        const el = document.getElementById('notif');
+        el.innerText = text; el.style.color = color; el.classList.add('show');
+        setTimeout(() => el.classList.remove('show'), 2000);
+    }
+
+    update(dt) {
+        this.spawnTimer -= dt;
+        if(this.spawnTimer <= 0) {
+            const r = Math.random();
+            let type = 'THREAT';
+            if(r < 0.3) type = 'NOISE';
+            if(r < 0.08 && !this.agentActive && this.wisdom < 90) type = 'WISDOM';
+            this.entities.push(new Entity(this.width, type));
+            this.spawnTimer = Math.max(400, 1200 - (this.score * 15)); 
+        }
+        
+        if(this.agentActive) {
+            this.agentTimer -= dt;
+            if(this.agentTimer <= 0) { this.agentActive = false; this.wisdom = 0; }
+            else if(Math.random() < 0.4) {
+                const targets = this.entities.filter(e => !e.dead && e.type === 'THREAT' && e.y > -50);
+                if(targets.length) {
+                    const t = targets[Math.floor(Math.random()*targets.length)];
+                    this.destroyEntity(t);
+                    this.lasers.push(new Laser(this.width/2, this.height-60, t.x, t.y, COLORS.green));
+                }
+            }
+        }
+        
+        this.entities.forEach(e => e.update(dt));
+        this.entities = this.entities.filter(e => !e.dead && e.y < this.height + 100);
+        this.entities.forEach(e => {
+            if(e.y > this.height && !e.processed && e.type === 'THREAT') {
+                e.processed = true;
+                this.takeDamage(10);
+            }
+        });
+        
+        this.lasers.forEach(l => l.update());
+        this.lasers = this.lasers.filter(l => l.life > 0);
+        this.particles.forEach(p => p.update());
+        this.particles = this.particles.filter(p => p.life > 0);
+        
+        this.updateUI();
+    }
+    
+    updateUI() {
+        document.getElementById('score').innerText = this.score;
+        document.getElementById('hp-bar').style.width = Math.max(0, this.health) + '%';
+        const wVal = this.agentActive ? (this.agentTimer / 50) : this.wisdom;
+        document.getElementById('wisdom-bar').style.width = wVal + '%';
+        document.getElementById('wisdom-val').innerText = Math.floor(wVal) + '%';
+        document.getElementById('wisdom-text').innerText = this.agentActive ? "MATE AGENT: RESOLVING THREATS" : "GATHERING INTEL";
+        
+        const setW = (id, progId, unlock, prev) => {
+            const el = document.getElementById(id);
+            const prog = document.getElementById(progId);
+            if(this.weaponLevel >= unlock) {
+                el.classList.add('active');
+                el.style.opacity = '1';
+                prog.style.width = '100%';
+            } else {
+                el.classList.remove('active');
+                const p = Math.min(100, (Math.max(0, this.score - prev) / (unlock - prev)) * 100);
+                prog.style.width = p + '%';
+                el.style.opacity = '0.5';
+            }
+        };
+        
+        setW('w2', 'w2-prog', 2, 0);
+        setW('w3', 'w3-prog', 3, 10);
+    }
+
+    draw() {
+        ctx.clearRect(0, 0, this.width, this.height);
+        
+        // Grid
+        ctx.strokeStyle = COLORS[currentTheme].ui;
+        ctx.lineWidth = 1;
+        const gs = 100;
+        ctx.beginPath();
+        for(let x=0; x<=this.width; x+=gs) { ctx.moveTo(x,0); ctx.lineTo(x,this.height); }
+        for(let y=0; y<=this.height; y+=gs) { ctx.moveTo(0,y); ctx.lineTo(this.width,y); }
+        ctx.stroke();
+        
+        this.entities.forEach(e => e.draw(ctx));
+        this.lasers.forEach(l => l.draw(ctx));
+        this.particles.forEach(p => p.draw(ctx));
+        
+        this.drawNinja();
+    }
+    
+    drawNinja() {
+        const x = this.width / 2;
+        const y = this.height - 60;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Ink Style Ninja (Matches Mate Logo Curve)
+        ctx.fillStyle = this.agentActive ? COLORS.green : COLORS[currentTheme].text;
+        
+        ctx.beginPath();
+        // Simulating the M curve
+        ctx.moveTo(-40, 0);
+        ctx.quadraticCurveTo(-20, 30, 0, 10);
+        ctx.quadraticCurveTo(20, 30, 40, 0);
+        ctx.lineTo(40, 15);
+        ctx.quadraticCurveTo(20, 50, 0, 30);
+        ctx.quadraticCurveTo(-20, 50, -40, 15);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Agent Aura
+        if(this.agentActive) {
+            ctx.shadowBlur = 20; ctx.shadowColor = COLORS.green;
+            ctx.strokeStyle = COLORS.green; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(0, 20, 50, 0, Math.PI*2); ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+        ctx.restore();
+    }
+    
+    loop(timestamp) {
+        if(this.paused) {
+            this.animationId = requestAnimationFrame(this.loop);
+            return;
+        }
+        
+        const dt = Math.min(timestamp - this.lastTime, 30); // Cap dt to prevent jumps
+        this.lastTime = timestamp;
+        
+        this.update(dt);
+        this.draw();
+        
+        this.animationId = requestAnimationFrame(this.loop);
+    }
+}
+
+class Entity {
+    constructor(w, type) {
+        this.type = type;
+        this.x = Math.random() * (w - 100) + 50;
+        this.y = -60;
+        this.size = type === 'WISDOM' ? 15 : 25;
+        this.speed = (Math.random() * 0.1 + 0.15) * (type === 'NOISE' ? 1.2 : 1);
+        this.dead = false;
+        this.processed = false;
+    }
+    update(dt) { this.y += this.speed * dt; }
+    draw(ctx) {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if(this.type === 'THREAT') {
+            ctx.fillStyle = COLORS.red; ctx.beginPath(); ctx.arc(0,0,this.size,0,Math.PI*2); ctx.fill();
+        } else if(this.type === 'NOISE') {
+            ctx.fillStyle = COLORS[currentTheme].text; ctx.globalAlpha = 0.2;
+            ctx.beginPath(); ctx.arc(0,0,this.size,0,Math.PI*2); ctx.fill();
+        } else {
+            ctx.fillStyle = COLORS.green;
+            ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(12,0); ctx.lineTo(0,12); ctx.lineTo(-12,0); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class Laser {
+    constructor(x1, y1, x2, y2, color) {
+        this.x1 = x1; this.y1 = y1; this.x2 = x2; this.y2 = y2;
+        this.color = color; this.life = 1.0;
+    }
+    update() { this.life -= 0.05; }
+    draw(ctx) {
+        ctx.save(); ctx.globalAlpha = this.life;
+        ctx.strokeStyle = this.color; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(this.x1, this.y1); ctx.lineTo(this.x2, this.y2); ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y; this.color = color;
+        const a = Math.random() * 6.28; const s = Math.random() * 3;
+        this.vx = Math.cos(a) * s; this.vy = Math.sin(a) * s; this.life = 1.0;
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.life -= 0.04; }
+    draw(ctx) {
+        ctx.save(); ctx.globalAlpha = this.life; ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, 6.28); ctx.fill(); ctx.restore();
+    }
+}
+
+const game = new Game();
+</script>
+</body>
+</html>
+`;
+
 function App() {
-  // Default to Light Mode as requested
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>('light');
   const [showDisclaimer, setShowDisclaimer] = useState(true);
-  const [activeModel, setActiveModel] = useState('gemini3');
-  const [gameHtml, setGameHtml] = useState<string | null>(null);
-  
-  // Theme constants
+  const [copied, setCopied] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   const bg = themeMode === 'dark' ? MATE_COLORS.backgroundDark : MATE_COLORS.backgroundLight;
   const text = themeMode === 'dark' ? MATE_COLORS.textDark : MATE_COLORS.textLight;
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
-  // Load Game Content (Directly from imported strings)
-  useEffect(() => {
-    if (activeModel === 'gemini3') {
-        setGameHtml(gemini3Html);
-    } else {
-        setGameHtml(gemini2p5Html);
-    }
-  }, [activeModel]);
-
-  // Toggle Theme
   const toggleTheme = () => {
     const newMode = themeMode === 'dark' ? 'light' : 'dark';
     setThemeMode(newMode);
@@ -59,18 +551,22 @@ function App() {
     }
   };
 
-  // Handle Game Start/Pause
-  useEffect(() => {
-    if(iframeRef.current && iframeRef.current.contentWindow) {
-        // Small delay to ensure iframe logic is ready
-        setTimeout(() => {
-             iframeRef.current?.contentWindow?.postMessage({ type: 'PAUSE_GAME', payload: showDisclaimer }, '*');
-             // Force theme sync on start
-             iframeRef.current?.contentWindow?.postMessage({ type: 'SET_THEME', payload: themeMode }, '*');
-        }, 100);
-    }
-  }, [showDisclaimer, gameHtml, themeMode]);
+  const handleEmbed = () => {
+      const code = `<iframe src="${window.location.href}" width="100%" height="600px" frameborder="0" style="border-radius:12px;"></iframe>`;
+      navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+  };
 
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if(iframe && iframe.contentWindow) {
+         iframe.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: showDisclaimer }, '*');
+         iframe.contentWindow.postMessage({ type: 'SET_THEME', payload: themeMode }, '*');
+    }
+  }, [showDisclaimer, themeMode]);
+
+  // Styles - Enforce Mate Light Theme by default
   const styles = {
     container: {
       position: 'fixed' as const, top: 0, left: 0, width: '100%', height: '100%',
@@ -79,21 +575,19 @@ function App() {
     header: {
       position: 'absolute' as const, top: 0, left: 0, width: '100%', height: '80px',
       display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 40px',
-      zIndex: 10
-    },
-    logoGroup: {
-        display: 'flex', alignItems: 'center', gap: '12px'
+      zIndex: 10, pointerEvents: 'none' as const
     },
     logo: {
-      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '36px', letterSpacing: '-1px'
+      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '32px', letterSpacing: '-1px', pointerEvents: 'auto' as const
     },
     tagline: {
       fontFamily: "'Inter', sans-serif", fontSize: '11px', textTransform: 'uppercase' as const, letterSpacing: '2px', fontWeight: 600, opacity: 0.6
     },
+    headerRight: { pointerEvents: 'auto' as const, display: 'flex', alignItems: 'center', gap: '10px' },
     btn: {
       background: 'transparent', border: `1px solid ${text}`, color: text,
-      padding: '10px 24px', borderRadius: '30px', cursor: 'pointer',
-      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '12px', textTransform: 'uppercase' as const
+      padding: '8px 20px', borderRadius: '30px', cursor: 'pointer',
+      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '11px', textTransform: 'uppercase' as const
     },
     modal: {
       position: 'absolute' as const, top: 0, left: 0, width: '100%', height: '100%',
@@ -101,77 +595,54 @@ function App() {
       display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
       zIndex: 20
     },
-    modalContent: {
-        maxWidth: '600px', width: '100%', textAlign: 'center' as const
-    },
-    heroTitle: {
-        fontFamily: "'Space Grotesk', sans-serif", fontSize: '64px', fontWeight: 800, lineHeight: 0.9, letterSpacing: '-2px', marginBottom: '32px'
-    },
-    instructionGrid: {
-        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '40px', textAlign: 'left' as const
-    },
-    instructionItem: {
-        borderTop: `1px solid ${text}`, paddingTop: '16px'
-    },
     ctaButton: {
         background: text, color: bg, border: 'none', padding: '20px 60px', borderRadius: '50px',
         fontFamily: "'Space Grotesk', sans-serif", fontSize: '18px', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase' as const,
-        transition: 'transform 0.2s'
+        transition: 'transform 0.2s', marginTop: '40px'
     }
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <div style={styles.logoGroup}>
-             <div style={styles.logo}>MATE</div>
-        </div>
-        
+        <div style={styles.logo}>MATE</div>
         <div style={styles.tagline}>Wisdom-led Performance</div>
-        
-        <button style={styles.btn} onClick={toggleTheme}>
-            {themeMode === 'light' ? 'Dark' : 'Light'}
-        </button>
+        <div style={styles.headerRight}>
+            <button style={styles.btn} onClick={handleEmbed}>{copied ? 'Copied!' : 'Embed'}</button>
+            <button style={styles.btn} onClick={toggleTheme}>{themeMode === 'light' ? 'Dark' : 'Light'}</button>
+        </div>
       </div>
 
-      {/* Game Iframe */}
-      {gameHtml && (
-        <iframe 
-            ref={iframeRef}
-            srcDoc={gameHtml}
-            style={{width: '100%', height: '100%', border: 'none', display: 'block'}}
-            title="Mate Game"
-        />
-      )}
+      <iframe 
+          ref={iframeRef}
+          srcDoc={GAME_SOURCE}
+          style={{width: '100%', height: '100%', border: 'none', display: 'block'}}
+          title="Mate Game"
+      />
 
-      {/* Overlay Modal */}
       {showDisclaimer && (
         <div style={styles.modal}>
-           <div style={styles.modalContent}>
-               <div style={styles.heroTitle}>PUT WISDOM<br/>TO WORK</div>
+           <div style={{textAlign: 'center', maxWidth: '800px'}}>
+               <div style={{fontFamily: "'Space Grotesk', sans-serif", fontSize: '64px', fontWeight: 800, lineHeight: 0.9, letterSpacing: '-2px', marginBottom: '10px'}}>PUT WISDOM<br/>TO WORK</div>
+               <div style={{fontFamily: "'Inter', sans-serif", opacity: 0.6, marginBottom: '40px'}}>Defend the organization. Eliminate noise.</div>
                
-               <div style={styles.instructionGrid}>
-                   <div style={styles.instructionItem}>
-                       <div style={{fontSize: '11px', fontWeight: 700, marginBottom: '8px', opacity: 0.5, letterSpacing: '1px'}}>DEFEND</div>
-                       <div style={{fontSize: '14px', lineHeight: 1.4}}>Destroy <strong>Threats</strong> (Red) to build Impact and unlock the Arsenal.</div>
+               <div style={{display: 'flex', justifyContent: 'center', gap: '60px', textAlign: 'left', fontSize: '13px', lineHeight: 1.5}}>
+                   <div>
+                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>01. Defend</strong><br/>
+                       Destroy Threats (Red) to build Impact.
                    </div>
-                   <div style={styles.instructionItem}>
-                       <div style={{fontSize: '11px', fontWeight: 700, marginBottom: '8px', opacity: 0.5, letterSpacing: '1px'}}>FOCUS</div>
-                       <div style={{fontSize: '14px', lineHeight: 1.4}}>Avoid <strong>Noise</strong> (Grey). Noise drains your resilience.</div>
+                   <div>
+                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>02. Focus</strong><br/>
+                       Avoid Noise (Grey). It drains resilience.
                    </div>
-                   <div style={styles.instructionItem}>
-                       <div style={{fontSize: '11px', fontWeight: 700, marginBottom: '8px', opacity: 0.5, letterSpacing: '1px'}}>AUTOMATE</div>
-                       <div style={{fontSize: '14px', lineHeight: 1.4}}>Collect <strong>Wisdom</strong> (Green) to deploy the AI Agent.</div>
+                   <div>
+                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>03. Automate</strong><br/>
+                       Collect Wisdom (Green) to deploy Agent.
                    </div>
                </div>
 
-               <button 
-                style={styles.ctaButton} 
-                onClick={() => setShowDisclaimer(false)}
-                onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-                onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
-               >
-                   Start
+               <button style={styles.ctaButton} onClick={() => setShowDisclaimer(false)}>
+                   Start Engine
                </button>
            </div>
         </div>
