@@ -1,0 +1,700 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mate: Wisdom Led Performance</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@700&display=swap');
+        
+        body { margin: 0; overflow: hidden; background: #F2EEE0; color: #0E0F11; user-select: none; }
+        canvas { display: block; }
+        
+        #ui {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 40px; box-sizing: border-box;
+            z-index: 10;
+        }
+
+        /* HUD Elements */
+        .hud-group { display: flex; gap: 60px; pointer-events: auto; align-items: center; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-label { font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; opacity: 0.5; margin-bottom: 6px; }
+        .stat-val { font-family: 'Space Grotesk', sans-serif; font-size: 42px; line-height: 0.9; font-weight: 700; }
+        
+        .bar-track { width: 180px; height: 6px; background: rgba(0,0,0,0.05); margin-top: 4px; position: relative; overflow: hidden; }
+        .bar-fill { height: 100%; width: 0%; transition: width 0.2s; }
+        
+        /* Arsenal Widget */
+        #arsenal {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+            pointer-events: auto;
+        }
+        .weapon-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.03);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+            border: 1px solid transparent;
+        }
+        .weapon-row.locked { opacity: 0.4; }
+        .weapon-row.active { background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.1); opacity: 1; }
+        
+        .progress-bg {
+            position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+            background: rgba(0,0,0,0.05);
+            z-index: 0;
+            transition: width 0.5s;
+        }
+        
+        .key-box {
+            width: 32px; height: 32px;
+            border: 1px solid currentColor;
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+            font-size: 14px;
+            position: relative; z-index: 1;
+        }
+        .weapon-meta { display: flex; flex-direction: column; justify-content: center; position: relative; z-index: 1; }
+        .weapon-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; text-transform: uppercase; }
+        .weapon-desc { font-family: 'Inter', sans-serif; font-size: 11px; opacity: 0.6; margin-top: 2px; }
+
+        /* Game Over */
+        #game-over {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(242, 238, 224, 0.98);
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; pointer-events: auto;
+        }
+        .go-title { font-family: 'Space Grotesk', sans-serif; font-size: 64px; margin-bottom: 16px; letter-spacing: -2px; font-weight: 800; }
+        .go-desc { font-family: 'Inter', sans-serif; font-size: 16px; margin-bottom: 48px; opacity: 0.7; }
+        .cta-btn {
+            background: #0E0F11; color: #F2EEE0; border: none;
+            padding: 20px 60px; border-radius: 50px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700;
+            text-transform: uppercase; cursor: pointer;
+            margin-bottom: 24px; transition: transform 0.1s;
+        }
+        .cta-btn:hover { transform: scale(1.05); }
+        .link-btn { background: none; border: none; text-decoration: underline; cursor: pointer; font-family: 'Inter', sans-serif; opacity: 0.5; font-size: 14px; font-weight: 600;}
+        
+        /* Notifications */
+        #notif {
+            position: absolute; top: 40%; width: 100%; text-align: center;
+            font-family: 'Space Grotesk', sans-serif; font-size: 48px; font-weight: 800; letter-spacing: -1px; text-transform: uppercase;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
+            transform: translateY(20px);
+        }
+        #notif.show { opacity: 1; transform: translateY(0); }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="c"></canvas>
+
+    <div id="ui">
+        <!-- Top HUD -->
+        <div class="hud-group" style="justify-content: space-between; width: 100%; margin-top: 60px;">
+            <div class="hud-group">
+                <div class="stat">
+                    <div class="stat-label">Total Impact</div>
+                    <div class="stat-val" id="score">0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Resilience</div>
+                    <div class="bar-track"><div class="bar-fill" id="hp-bar" style="background: #FF567B; width: 100%;"></div></div>
+                </div>
+            </div>
+            
+            <div class="stat" style="align-items: flex-end; text-align: right;">
+                <div class="stat-label">Centralized Wisdom <span id="wisdom-val" style="opacity: 0.5; margin-left: 8px;">0%</span></div>
+                <div class="bar-track" style="width: 240px; height: 8px;"><div class="bar-fill" id="wisdom-bar" style="background: #4ED1A1;"></div></div>
+                <div id="wisdom-text" style="font-size: 10px; margin-top: 8px; opacity: 0.4; font-weight: 700; font-family: 'Inter', sans-serif; letter-spacing: 1px;">GATHERING INTEL</div>
+            </div>
+        </div>
+
+        <!-- Bottom Left Arsenal -->
+        <div id="arsenal">
+            <!-- Weapon 1 -->
+            <div class="weapon-row active" id="w1">
+                <div class="progress-bg" id="w1-prog"></div>
+                <div class="key-box">I</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">INTUITION</div>
+                    <div class="weapon-desc">Standard Beam</div>
+                </div>
+            </div>
+            <!-- Weapon 2 -->
+            <div class="weapon-row locked" id="w2">
+                <div class="progress-bg" id="w2-prog"></div>
+                <div class="key-box">C</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">CONTEXT</div>
+                    <div class="weapon-desc">Unlock at 10 Impact</div>
+                </div>
+            </div>
+            <!-- Weapon 3 -->
+             <div class="weapon-row locked" id="w3">
+                <div class="progress-bg" id="w3-prog"></div>
+                <div class="key-box">X</div>
+                <div class="weapon-meta">
+                    <div class="weapon-name">CORRELATION</div>
+                    <div class="weapon-desc">Unlock at 25 Impact</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="notif"></div>
+
+    <div id="game-over">
+        <div class="go-title" id="go-head">OLD WORLD FAILURE</div>
+        <div class="go-desc">Your security team was overwhelmed by noise.</div>
+        <button class="cta-btn" onclick="window.open('https://mate.ai', '_blank')">GET A MATE</button>
+        <button class="link-btn" onclick="game.reset()">TRY AGAIN</button>
+    </div>
+
+<script>
+/**
+ * MATE: WISDOM LED PERFORMANCE - GAME ENGINE
+ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// THEME CONFIG
+const COLORS = {
+    light: { bg: '#F2EEE0', text: '#0E0F11', ui: 'rgba(0,0,0,0.05)' },
+    dark: { bg: '#0E0F11', text: '#F2EEE0', ui: 'rgba(255,255,255,0.05)' },
+    green: '#4ED1A1',
+    red: '#FF567B',
+    blue: '#6DB4FF'
+};
+
+let currentTheme = 'light';
+
+class Game {
+    constructor() {
+        this.entities = [];
+        this.lasers = [];
+        this.particles = [];
+        
+        // Stats
+        this.score = 0;
+        this.health = 100;
+        this.wisdom = 0;
+        this.weaponLevel = 1;
+        
+        // Agent State
+        this.agentActive = false;
+        this.agentTimer = 0;
+        
+        // Engine State
+        this.lastTime = 0;
+        this.spawnTimer = 0;
+        this.paused = true;
+        this.over = false;
+        this.animationFrameId = null;
+        
+        this.resize();
+        this.bindEvents();
+    }
+    
+    resize() {
+        this.width = canvas.width = window.innerWidth;
+        this.height = canvas.height = window.innerHeight;
+    }
+    
+    bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+        
+        // Mouse Interaction
+        window.addEventListener('mousedown', e => {
+            if(!this.paused && !this.over) this.fire(e.clientX, e.clientY);
+        });
+
+        // Communication with React Parent
+        window.addEventListener('message', (e) => {
+            if(e.data.type === 'SET_THEME') {
+                currentTheme = e.data.payload;
+                this.applyTheme();
+            }
+            if(e.data.type === 'PAUSE_GAME') {
+                this.paused = e.data.payload;
+                if(!this.paused) {
+                    this.lastTime = performance.now();
+                    this.loop(this.lastTime);
+                }
+            }
+        });
+    }
+    
+    applyTheme() {
+        const c = COLORS[currentTheme];
+        document.body.style.backgroundColor = c.bg;
+        document.body.style.color = c.text;
+        
+        const go = document.getElementById('game-over');
+        go.style.backgroundColor = currentTheme === 'light' ? 'rgba(242, 238, 224, 0.98)' : 'rgba(14, 15, 17, 0.98)';
+        document.getElementById('go-head').style.color = c.text;
+        
+        // Update key boxes
+        document.querySelectorAll('.key-box').forEach(el => el.style.borderColor = c.text);
+    }
+    
+    reset() {
+        this.entities = [];
+        this.lasers = [];
+        this.particles = [];
+        this.score = 0;
+        this.health = 100;
+        this.wisdom = 0;
+        this.weaponLevel = 1;
+        this.agentActive = false;
+        this.over = false;
+        this.paused = false;
+        this.lastTime = performance.now();
+        
+        document.getElementById('game-over').style.display = 'none';
+        this.updateUI();
+    }
+    
+    fire(tx, ty) {
+        if(this.agentActive) return; // Agent handles firing
+
+        const originX = this.width / 2;
+        const originY = this.height - 100; // Bottom Center Ninja
+
+        // Level 1: Intuition (Single Beam)
+        this.lasers.push(new Laser(originX, originY, tx, ty, COLORS[currentTheme].text));
+        
+        // Level 2: Context (Dual Beams)
+        if(this.weaponLevel >= 2) {
+             this.lasers.push(new Laser(originX - 20, originY + 10, tx - 20, ty, COLORS.blue));
+             this.lasers.push(new Laser(originX + 20, originY + 10, tx + 20, ty, COLORS.blue));
+        }
+        
+        // Detect Hits
+        // Hitscan logic with radius based on level
+        const hitRadius = 40 + (this.weaponLevel * 20);
+        this.checkHits(tx, ty, hitRadius);
+    }
+    
+    checkHits(x, y, r) {
+        this.entities.forEach(e => {
+            if(e.dead) return;
+            const dist = Math.hypot(e.x - x, e.y - y);
+            
+            if(dist < r + e.size) {
+                if(e.type === 'THREAT') {
+                    this.destroyEntity(e);
+                    // Level 3: Correlation (Chain Reaction)
+                    if(this.weaponLevel >= 3) this.triggerChain(e);
+                } 
+                else if(e.type === 'NOISE') {
+                    this.takeDamage(10);
+                    this.notify("NOISE DISTRACTION", COLORS.red);
+                    e.dead = true;
+                }
+                else if(e.type === 'WISDOM') {
+                    e.dead = true;
+                    this.wisdom = 100;
+                    this.deployAgent();
+                }
+            }
+        });
+    }
+    
+    triggerChain(source) {
+        // Find closest other threat
+        let nearest = null;
+        let minDist = 400;
+        
+        this.entities.forEach(e => {
+            if(!e.dead && e !== source && e.type === 'THREAT') {
+                const d = Math.hypot(e.x - source.x, e.y - source.y);
+                if(d < minDist) {
+                    minDist = d;
+                    nearest = e;
+                }
+            }
+        });
+        
+        if(nearest) {
+            // Delay kill slightly for visual effect
+            setTimeout(() => this.destroyEntity(nearest), 100);
+            // Add connecting beam
+            this.lasers.push(new Laser(source.x, source.y, nearest.x, nearest.y, COLORS.green, true));
+        }
+    }
+    
+    destroyEntity(e) {
+        if(e.dead) return;
+        e.dead = true;
+        this.score++;
+        this.wisdom = Math.min(100, this.wisdom + 10);
+        this.health = Math.min(100, this.health + 2);
+        
+        // Spawn Particles
+        for(let i=0; i<6; i++) {
+            this.particles.push(new Particle(e.x, e.y, COLORS.red));
+        }
+        
+        // Weapon Progression Checks
+        if(this.score === 10 && this.weaponLevel < 2) {
+            this.weaponLevel = 2;
+            this.notify("CONTEXT UNLOCKED", COLORS.blue);
+        }
+        if(this.score === 25 && this.weaponLevel < 3) {
+            this.weaponLevel = 3;
+            this.notify("CORRELATION UNLOCKED", COLORS.green);
+        }
+    }
+    
+    deployAgent() {
+        if(!this.agentActive) {
+            this.agentActive = true;
+            this.agentTimer = 5000; // 5 seconds
+            this.notify("MATE AGENT DEPLOYED", COLORS.green);
+        }
+    }
+    
+    takeDamage(amt) {
+        this.health -= amt;
+        // Shake effect?
+        if(this.health <= 0) {
+            this.over = true;
+            document.getElementById('game-over').style.display = 'flex';
+        }
+    }
+    
+    notify( text, color ) {
+        const el = document.getElementById('notif');
+        el.innerText = text;
+        el.style.color = color;
+        el.classList.add('show');
+        setTimeout(() => el.classList.remove('show'), 2000);
+    }
+
+    update(dt) {
+        // Spawn Logic
+        this.spawnTimer -= dt;
+        if(this.spawnTimer <= 0) {
+            const r = Math.random();
+            let type = 'THREAT';
+            if(r < 0.3) type = 'NOISE';
+            if(r < 0.05 && !this.agentActive && this.wisdom < 100) type = 'WISDOM';
+            
+            this.entities.push(new Entity(this.width, type));
+            // Difficulty scaling
+            this.spawnTimer = Math.max(200, 1000 - (this.score * 15)); 
+        }
+        
+        // Agent Logic
+        if(this.agentActive) {
+            this.agentTimer -= dt;
+            if(this.agentTimer <= 0) {
+                this.agentActive = false;
+                this.wisdom = 0;
+            } else {
+                // Auto-target visible threats
+                // Scan line effect
+                if(Math.random() < 0.3) {
+                    const targets = this.entities.filter(e => !e.dead && e.type === 'THREAT' && e.y > 0);
+                    if(targets.length) {
+                        const t = targets[Math.floor(Math.random()*targets.length)];
+                        this.destroyEntity(t);
+                        this.lasers.push(new Laser(this.width/2, this.height-100, t.x, t.y, COLORS.green));
+                    }
+                }
+            }
+        }
+        
+        // Entity Updates
+        this.entities.forEach(e => e.update(dt));
+        // Clean up
+        this.entities = this.entities.filter(e => !e.dead && e.y < this.height + 100);
+        
+        // Damage on miss
+        this.entities.forEach(e => {
+            if(e.y > this.height && !e.processed && e.type === 'THREAT') {
+                e.processed = true;
+                this.takeDamage(15);
+            }
+        });
+        
+        // FX Updates
+        this.lasers.forEach(l => l.update());
+        this.lasers = this.lasers.filter(l => l.life > 0);
+        
+        this.particles.forEach(p => p.update());
+        this.particles = this.particles.filter(p => p.life > 0);
+        
+        this.updateUI();
+    }
+    
+    updateUI() {
+        document.getElementById('score').innerText = this.score;
+        document.getElementById('hp-bar').style.width = Math.max(0, this.health) + '%';
+        
+        // Wisdom Bar
+        const wVal = this.agentActive ? (this.agentTimer / 50) : this.wisdom;
+        document.getElementById('wisdom-bar').style.width = wVal + '%';
+        document.getElementById('wisdom-val').innerText = Math.floor(wVal) + '%';
+        document.getElementById('wisdom-text').innerText = this.agentActive 
+            ? "MATE AGENT: RESOLVING THREATS" 
+            : "GATHERING INTEL";
+            
+        // Arsenal Queue Updates
+        // W1 always full/active
+        const c = COLORS[currentTheme];
+        
+        // W2
+        const w2 = document.getElementById('w2');
+        const w2Prog = document.getElementById('w2-prog');
+        if(this.weaponLevel >= 2) {
+            w2.classList.remove('locked');
+            w2.classList.add('active');
+            w2Prog.style.width = '100%';
+            w2.querySelector('.key-box').style.color = COLORS.blue;
+        } else {
+            const p = Math.min(100, (this.score / 10) * 100);
+            w2Prog.style.width = p + '%';
+        }
+        
+        // W3
+        const w3 = document.getElementById('w3');
+        const w3Prog = document.getElementById('w3-prog');
+        if(this.weaponLevel >= 3) {
+            w3.classList.remove('locked');
+            w3.classList.add('active');
+            w3Prog.style.width = '100%';
+            w3.querySelector('.key-box').style.color = COLORS.green;
+        } else {
+            const p = Math.min(100, (Math.max(0, this.score - 10) / 15) * 100);
+            w3Prog.style.width = p + '%';
+        }
+    }
+
+    draw() {
+        ctx.clearRect(0, 0, this.width, this.height);
+        
+        // Background Grid
+        ctx.strokeStyle = COLORS[currentTheme].ui;
+        ctx.lineWidth = 1;
+        const gridSize = 80;
+        const offset = (Date.now() / 50) % gridSize;
+        
+        // Moving Grid Effect
+        ctx.beginPath();
+        for (let x = 0; x <= this.width; x += gridSize) {
+            ctx.moveTo(x, 0); ctx.lineTo(x, this.height);
+        }
+        // Horizontal lines moving down
+        for (let y = offset - gridSize; y <= this.height; y += gridSize) {
+             ctx.moveTo(0, y); ctx.lineTo(this.width, y);
+        }
+        ctx.stroke();
+        
+        // Draw Elements
+        this.entities.forEach(e => e.draw(ctx));
+        this.lasers.forEach(l => l.draw(ctx));
+        this.particles.forEach(p => p.draw(ctx));
+        
+        this.drawNinja();
+    }
+    
+    drawNinja() {
+        const x = this.width / 2;
+        const y = this.height - 80;
+        const size = 50;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Ink Style Ninja Body (Abstract)
+        ctx.fillStyle = this.agentActive ? COLORS.green : COLORS[currentTheme].text;
+        ctx.beginPath();
+        // M-shape stroke
+        ctx.moveTo(-30, 20);
+        ctx.quadraticCurveTo(-20, -20, 0, 0);
+        ctx.quadraticCurveTo(20, -20, 30, 20);
+        ctx.lineTo(20, 30);
+        ctx.quadraticCurveTo(10, 10, 0, 20);
+        ctx.quadraticCurveTo(-10, 10, -20, 30);
+        ctx.fill();
+        
+        // Floating "Mind" orb
+        const hover = Math.sin(Date.now() / 300) * 5;
+        ctx.fillStyle = this.agentActive ? '#fff' : COLORS[currentTheme].text;
+        ctx.beginPath();
+        ctx.arc(0, -30 + hover, 12, 0, Math.PI*2);
+        ctx.fill();
+        
+        // Glow if active
+        if(this.agentActive) {
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = COLORS.green;
+            ctx.strokeStyle = COLORS.green;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, -30 + hover, 18, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            // Scanner beam
+            ctx.fillStyle = 'rgba(78, 209, 161, 0.1)';
+            ctx.beginPath();
+            ctx.moveTo(0, -30 + hover);
+            ctx.lineTo(-this.width/2, -this.height);
+            ctx.lineTo(this.width/2, -this.height);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+    
+    loop(timestamp) {
+        if(this.paused) return;
+
+        // Calculate Delta
+        const dt = timestamp - this.lastTime;
+        this.lastTime = timestamp;
+        
+        // Logic Cap (Prevents spiral of death if tab inactive)
+        const safeDt = Math.min(dt, 50);
+        
+        this.update(safeDt);
+        this.draw();
+        
+        this.animationFrameId = requestAnimationFrame(t => this.loop(t));
+    }
+}
+
+// --- GAME OBJECTS ---
+
+class Entity {
+    constructor(w, type) {
+        this.type = type;
+        this.x = Math.random() * (w - 100) + 50;
+        this.y = -60;
+        this.size = type === 'WISDOM' ? 15 : 20;
+        this.speed = (Math.random() * 0.1 + 0.05) * (type === 'NOISE' ? 1.5 : 1);
+        this.dead = false;
+        this.processed = false;
+        this.rot = Math.random() * Math.PI;
+    }
+    
+    update(dt) {
+        this.y += this.speed * dt;
+        this.rot += 0.02;
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rot);
+        
+        if(this.type === 'THREAT') {
+            // Red Circle with Core
+            ctx.fillStyle = COLORS.red;
+            ctx.beginPath(); ctx.arc(0,0,this.size,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = COLORS[currentTheme].bg;
+            ctx.beginPath(); ctx.arc(0,0,6,0,Math.PI*2); ctx.fill();
+        } else if(this.type === 'NOISE') {
+            // Hollow Grey Circle
+            ctx.strokeStyle = COLORS[currentTheme].text;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath(); ctx.arc(0,0,this.size,0,Math.PI*2); ctx.stroke();
+        } else {
+            // Wisdom Diamond
+            ctx.fillStyle = COLORS.green;
+            ctx.beginPath();
+            ctx.moveTo(0, -15); ctx.lineTo(15,0); ctx.lineTo(0,15); ctx.lineTo(-15,0);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class Laser {
+    constructor(x1, y1, x2, y2, color) {
+        this.x1 = x1; this.y1 = y1;
+        this.x2 = x2; this.y2 = y2;
+        this.color = color;
+        this.life = 1.0;
+    }
+    
+    update() {
+        this.life -= 0.08; // Fade speed
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(this.x1, this.y1);
+        ctx.lineTo(this.x2, this.y2);
+        ctx.stroke();
+        
+        // Hit flash
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x2, this.y2, 15 * this.life, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y;
+        this.color = color;
+        const a = Math.random() * Math.PI * 2;
+        const s = Math.random() * 4;
+        this.vx = Math.cos(a) * s;
+        this.vy = Math.sin(a) * s;
+        this.life = 1.0;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= 0.03;
+    }
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+    }
+}
+
+
+// INITIALIZATION
+const game = new Game();
+
+// Initial Boot
+game.applyTheme();
+game.loop(performance.now());
+
+</script>
+</body>
+</html>
