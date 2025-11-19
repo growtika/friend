@@ -1,23 +1,12 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
-const MATE_COLORS = {
-  backgroundDark: '#0E0F11',
-  backgroundLight: '#F2EEE0',
-  textDark: '#F2EEE0',
-  textLight: '#0E0F11',
-  green: '#4ED1A1',
-  red: '#FF567B',
-  blue: '#6DB4FF'
-};
-
-// GAME_SOURCE: Complete, self-contained HTML/JS game engine.
-// NOTE: Backticks in the game code are replaced with string concatenation or avoided to prevent breaking the main template literal.
 const GAME_SOURCE = `
 <!DOCTYPE html>
 <html lang="en">
@@ -534,133 +523,74 @@ const game = new Game();
 </html>
 `;
 
-function App() {
-  const [themeMode, setThemeMode] = useState<'dark' | 'light'>('light');
-  const [showDisclaimer, setShowDisclaimer] = useState(true);
-  const [copied, setCopied] = useState(false);
+const App = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [theme, setTheme] = useState('light');
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  const bg = themeMode === 'dark' ? MATE_COLORS.backgroundDark : MATE_COLORS.backgroundLight;
-  const text = themeMode === 'dark' ? MATE_COLORS.textDark : MATE_COLORS.textLight;
+  useEffect(() => {
+    if (isLoaded && iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage({ type: 'SET_THEME', payload: theme }, '*');
+    }
+  }, [theme, isLoaded]);
 
   const toggleTheme = () => {
-    const newMode = themeMode === 'dark' ? 'light' : 'dark';
-    setThemeMode(newMode);
-    if(iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({ type: 'SET_THEME', payload: newMode }, '*');
-    }
-  };
-
-  const handleEmbed = () => {
-      const code = `<iframe src="${window.location.href}" width="100%" height="600px" frameborder="0" style="border-radius:12px;"></iframe>`;
-      navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Use onLoad instead of useEffect to ensure content is ready
-  const handleIframeLoad = () => {
-      const iframe = iframeRef.current;
-      if(iframe && iframe.contentWindow) {
-         // Force light mode on init to match default state
-         iframe.contentWindow.postMessage({ type: 'SET_THEME', payload: 'light' }, '*');
-         iframe.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: true }, '*');
-      }
+      setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
   
-  // When disclaimer closes, start game
-  const startGame = () => {
-      setShowDisclaimer(false);
-      if(iframeRef.current && iframeRef.current.contentWindow) {
-          iframeRef.current.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: false }, '*');
-      }
-  };
-
-  // Styles
-  const styles = {
-    container: {
-      position: 'fixed' as const, top: 0, left: 0, width: '100%', height: '100%',
-      background: bg, color: text, fontFamily: "'Inter', sans-serif", transition: 'background 0.3s'
-    },
-    header: {
-      position: 'absolute' as const, top: 0, left: 0, width: '100%', height: '80px',
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 40px',
-      zIndex: 10, pointerEvents: 'none' as const
-    },
-    logo: {
-      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '32px', letterSpacing: '-1px', pointerEvents: 'auto' as const
-    },
-    tagline: {
-      fontFamily: "'Inter', sans-serif", fontSize: '11px', textTransform: 'uppercase' as const, letterSpacing: '2px', fontWeight: 600, opacity: 0.6
-    },
-    headerRight: { pointerEvents: 'auto' as const, display: 'flex', alignItems: 'center', gap: '10px' },
-    btn: {
-      background: 'transparent', border: `1px solid ${text}`, color: text,
-      padding: '8px 20px', borderRadius: '30px', cursor: 'pointer',
-      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '11px', textTransform: 'uppercase' as const
-    },
-    modal: {
-      position: 'absolute' as const, top: 0, left: 0, width: '100%', height: '100%',
-      background: themeMode === 'light' ? 'rgba(242, 238, 224, 0.98)' : 'rgba(14, 15, 17, 0.98)',
-      display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center',
-      zIndex: 20
-    },
-    ctaButton: {
-        background: text, color: bg, border: 'none', padding: '20px 60px', borderRadius: '50px',
-        fontFamily: "'Space Grotesk', sans-serif", fontSize: '18px', fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase' as const,
-        transition: 'transform 0.2s', marginTop: '40px'
-    }
+  const copyEmbed = () => {
+      const code = `<iframe src="${window.location.href}" width="100%" height="600px" frameborder="0"></iframe>`;
+      navigator.clipboard.writeText(code);
+      alert('Embed code copied to clipboard!');
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={styles.logo}>MATE</div>
-        <div style={styles.tagline}>Wisdom-led Performance</div>
-        <div style={styles.headerRight}>
-            <button style={styles.btn} onClick={handleEmbed}>{copied ? 'Copied!' : 'Embed'}</button>
-            <button style={styles.btn} onClick={toggleTheme}>{themeMode === 'light' ? 'Dark' : 'Light'}</button>
+    <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+        <div style={{
+            position: 'absolute', top: 20, right: 20, zIndex: 100, display: 'flex', gap: 10
+        }}>
+            <button onClick={toggleTheme} style={{
+                padding: '10px 20px', borderRadius: 30, border: 'none', cursor: 'pointer',
+                fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, textTransform: 'uppercase',
+                background: theme === 'light' ? '#0E0F11' : '#F2EEE0',
+                color: theme === 'light' ? '#F2EEE0' : '#0E0F11',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            }}>
+                {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+            </button>
+             <button onClick={copyEmbed} style={{
+                padding: '10px 20px', borderRadius: 30, border: 'none', cursor: 'pointer',
+                fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, textTransform: 'uppercase',
+                background: '#4ED1A1', color: '#0E0F11',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            }}>
+                Embed
+            </button>
         </div>
-      </div>
-
-      <iframe 
-          ref={iframeRef}
-          srcDoc={GAME_SOURCE}
-          style={{width: '100%', height: '100%', border: 'none', display: 'block'}}
-          title="Mate Game"
-          onLoad={handleIframeLoad}
-      />
-
-      {showDisclaimer && (
-        <div style={styles.modal}>
-           <div style={{textAlign: 'center', maxWidth: '800px'}}>
-               <div style={{fontFamily: "'Space Grotesk', sans-serif", fontSize: '64px', fontWeight: 800, lineHeight: 0.9, letterSpacing: '-2px', marginBottom: '10px'}}>PUT WISDOM<br/>TO WORK</div>
-               <div style={{fontFamily: "'Inter', sans-serif", opacity: 0.6, marginBottom: '40px'}}>Defend the organization. Eliminate noise.</div>
-               
-               <div style={{display: 'flex', justifyContent: 'center', gap: '60px', textAlign: 'left', fontSize: '13px', lineHeight: 1.5}}>
-                   <div>
-                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>01. Defend</strong><br/>
-                       Destroy Threats (Red) to build Impact.
-                   </div>
-                   <div>
-                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>02. Focus</strong><br/>
-                       Avoid Noise (Grey). It drains resilience.
-                   </div>
-                   <div>
-                       <strong style={{fontFamily: "'Space Grotesk', sans-serif", textTransform: 'uppercase'}}>03. Automate</strong><br/>
-                       Collect Wisdom (Green) to deploy Agent.
-                   </div>
-               </div>
-
-               <button style={styles.ctaButton} onClick={startGame}>
-                   Start Engine
-               </button>
-           </div>
+        
+        <div style={{
+             position: 'absolute', top: 20, left: 40, zIndex: 100, pointerEvents: 'none'
+        }}>
+            <h1 style={{
+                fontFamily: 'Space Grotesk, sans-serif', fontWeight: 800, fontSize: 32, margin: 0,
+                color: theme === 'light' ? '#0E0F11' : '#F2EEE0', letterSpacing: -1
+            }}>MATE</h1>
+            <div style={{
+                fontFamily: 'Inter, sans-serif', fontSize: 12, opacity: 0.6, marginTop: 4, letterSpacing: 1,
+                color: theme === 'light' ? '#0E0F11' : '#F2EEE0'
+            }}>WISDOM-LED PERFORMANCE</div>
         </div>
-      )}
+
+        <iframe
+            ref={iframeRef}
+            srcDoc={GAME_SOURCE}
+            style={{ width: '100%', height: '100%', border: 'none' }}
+            title="Mate Game"
+            onLoad={() => setIsLoaded(true)}
+        />
     </div>
   );
-}
+};
 
-const root = createRoot(document.getElementById('root') || document.body);
-root.render(<App />);
+const root = createRoot(document.getElementById('root')!);
+root.render(<React.StrictMode><App /></React.StrictMode>);
