@@ -8,6 +8,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
 
+// Import game files directly as strings so they are bundled by Vite
+// Using relative paths to ensure compatibility
+// @ts-ignore
+import gemini3Html from './init/gemini3.html?raw';
+// @ts-ignore
+import gemini2p5Html from './init/gemini2p5.html?raw';
+
 const MATE_COLORS = {
   backgroundDark: '#0E0F11',
   backgroundLight: '#F2EEE0',
@@ -34,19 +41,13 @@ function App() {
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Load Game
+  // Load Game Content (Directly from imported strings)
   useEffect(() => {
-    const load = async () => {
-      const url = activeModel === 'gemini3' ? './init/gemini3.html' : './init/gemini2p5.html';
-      try {
-        const res = await fetch(url);
-        const html = await res.text();
-        setGameHtml(html);
-      } catch(e) {
-        console.error("Failed to load game");
-      }
-    };
-    load();
+    if (activeModel === 'gemini3') {
+        setGameHtml(gemini3Html);
+    } else {
+        setGameHtml(gemini2p5Html);
+    }
   }, [activeModel]);
 
   // Toggle Theme
