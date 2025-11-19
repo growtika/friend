@@ -1,10 +1,9 @@
-
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const MATE_COLORS = {
@@ -17,7 +16,8 @@ const MATE_COLORS = {
   blue: '#6DB4FF'
 };
 
-// THE GAME CODE EMBEDDED - ESCAPED SCRIPT TAGS TO PREVENT PARSING ERRORS
+// GAME_SOURCE: Complete, self-contained HTML/JS game engine.
+// NOTE: Backticks in the game code are replaced with string concatenation or avoided to prevent breaking the main template literal.
 const GAME_SOURCE = `
 <!DOCTYPE html>
 <html lang="en">
@@ -174,7 +174,7 @@ class Game {
         this.weaponLevel = 1;
         this.agentActive = false;
         this.agentTimer = 0;
-        this.lastTime = performance.now();
+        this.lastTime = 0;
         this.spawnTimer = 0;
         this.paused = false;
         this.over = false;
@@ -206,7 +206,6 @@ class Game {
             }
             if(e.data.type === 'PAUSE_GAME') {
                 this.paused = e.data.payload;
-                // Reset timer on resume to prevent physics jump
                 if(!this.paused) this.lastTime = performance.now();
             }
         });
@@ -466,7 +465,7 @@ class Game {
             return;
         }
         
-        const dt = Math.min(timestamp - this.lastTime, 50); // Cap dt to prevent huge jumps
+        const dt = Math.min(timestamp - this.lastTime, 30); // Cap dt to prevent jumps
         this.lastTime = timestamp;
         
         this.update(dt);
