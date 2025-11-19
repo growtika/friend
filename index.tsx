@@ -17,7 +17,7 @@ const MATE_COLORS = {
   blue: '#6DB4FF'
 };
 
-// THE GAME CODE IS NOW EMBEDDED TO PREVENT LOADING ERRORS
+// THE GAME CODE EMBEDDED - ESCAPED SCRIPT TAGS TO PREVENT PARSING ERRORS
 const GAME_SOURCE = `
 <!DOCTYPE html>
 <html lang="en">
@@ -174,7 +174,7 @@ class Game {
         this.weaponLevel = 1;
         this.agentActive = false;
         this.agentTimer = 0;
-        this.lastTime = 0;
+        this.lastTime = performance.now();
         this.spawnTimer = 0;
         this.paused = false;
         this.over = false;
@@ -206,6 +206,7 @@ class Game {
             }
             if(e.data.type === 'PAUSE_GAME') {
                 this.paused = e.data.payload;
+                // Reset timer on resume to prevent physics jump
                 if(!this.paused) this.lastTime = performance.now();
             }
         });
@@ -465,7 +466,7 @@ class Game {
             return;
         }
         
-        const dt = Math.min(timestamp - this.lastTime, 30); // Cap dt to prevent jumps
+        const dt = Math.min(timestamp - this.lastTime, 50); // Cap dt to prevent huge jumps
         this.lastTime = timestamp;
         
         this.update(dt);
@@ -529,7 +530,7 @@ class Particle {
 }
 
 const game = new Game();
-</script>
+<\/script>
 </body>
 </html>
 `;
@@ -558,15 +559,25 @@ function App() {
       setTimeout(() => setCopied(false), 2000);
   };
 
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if(iframe && iframe.contentWindow) {
-         iframe.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: showDisclaimer }, '*');
-         iframe.contentWindow.postMessage({ type: 'SET_THEME', payload: themeMode }, '*');
-    }
-  }, [showDisclaimer, themeMode]);
+  // Use onLoad instead of useEffect to ensure content is ready
+  const handleIframeLoad = () => {
+      const iframe = iframeRef.current;
+      if(iframe && iframe.contentWindow) {
+         // Force light mode on init to match default state
+         iframe.contentWindow.postMessage({ type: 'SET_THEME', payload: 'light' }, '*');
+         iframe.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: true }, '*');
+      }
+  };
+  
+  // When disclaimer closes, start game
+  const startGame = () => {
+      setShowDisclaimer(false);
+      if(iframeRef.current && iframeRef.current.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({ type: 'PAUSE_GAME', payload: false }, '*');
+      }
+  };
 
-  // Styles - Enforce Mate Light Theme by default
+  // Styles
   const styles = {
     container: {
       position: 'fixed' as const, top: 0, left: 0, width: '100%', height: '100%',
@@ -618,6 +629,7 @@ function App() {
           srcDoc={GAME_SOURCE}
           style={{width: '100%', height: '100%', border: 'none', display: 'block'}}
           title="Mate Game"
+          onLoad={handleIframeLoad}
       />
 
       {showDisclaimer && (
@@ -641,7 +653,7 @@ function App() {
                    </div>
                </div>
 
-               <button style={styles.ctaButton} onClick={() => setShowDisclaimer(false)}>
+               <button style={styles.ctaButton} onClick={startGame}>
                    Start Engine
                </button>
            </div>
